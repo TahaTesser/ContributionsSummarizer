@@ -28,13 +28,14 @@ jobs:
       - name: Install dependencies
         run: |
           npm init -y
-          npm install @octokit/rest
+          npm install @octokit/rest node-fetch
           npm pkg set type="module"
 
       - name: Create script
         run: |
           cat > summarize.js << 'EOL'
           import { Octokit } from "@octokit/rest";
+          import fetch from "node-fetch";
           import fs from "fs";
 
           const username = process.env.INPUT_USERNAME;
@@ -54,7 +55,10 @@ jobs:
           const endDate = `${monthStr}-${lastDay}T23:59:59Z`;
 
           const octokit = new Octokit({
-            auth: process.env.GITHUB_TOKEN
+            auth: process.env.GITHUB_TOKEN,
+            request: {
+              fetch: fetch
+            }
           });
 
           const query = `repo:${owner}/${repo} author:${username} type:pr created:${startDate}..${endDate}`;
