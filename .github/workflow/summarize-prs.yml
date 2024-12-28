@@ -1,0 +1,178 @@
+name: Summarize PRs for a Month
+
+on:
+  workflow_dispatch:
+    inputs:
+      username:
+        description: "Your GitHub username (e.g. 'myUser')"
+        required: true
+      repo:
+        description: "Target repo (e.g. 'flutter/flutter')"
+        required: true
+      month:
+        description: "Month (YYYY-MM) to summarize (e.g. '2024-01')"
+        required: true
+
+jobs:
+  summarize-prs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v3
+
+      - name: Set up Node
+        uses: actions/setup-node@v3
+        with:
+          node-version: '16'
+
+      - name: Install dependencies
+        run: npm install @octokit/rest
+
+      - name: Create script
+        run: |
+          cat > summarize.js << 'EOL'
+          const { Octokit } = require("@octokit/rest");
+          const fs = require("fs");
+
+          const username = process.env.INPUT_USERNAME;
+          const repoInput = process.env.INPUT_REPO;
+          const [owner, repo] = repoInput.split("/");
+          const monthStr = process.env.INPUT_MONTH;
+
+          function getLastDayOfMonth(year, month) {
+            return new Date(year, month, 0).getDate();
+          }
+
+          const [yyyy, mm] = monthStr.split("-");
+          const year = parseInt(yyyy, 10);
+          const month = parseInt(mm, 10);
+          const lastDay = getLastDayOfMonth(year, month);
+          const startDate = `${monthStr}-01T00:00:00Z`;
+          const endDate = `${monthStr}-${lastDay}T23:59:59Z`;
+
+          const octokit = new Octokit({
+            auth: process.env.GITHUB_TOKEN
+          });
+
+          const query = `repo:${owner}/${repo} author:${username} type:pr created:${startDate}..${endDate}`;
+
+          async function fetchPRs() {
+            let results = [];
+            let page = 1;
+            const perPage = 50;
+
+            while (true) {
+              const response = await octokit.search.issuesAndPullRequests({
+                q: query,
+                per_page: perPage,
+                page
+              });
+
+              results = results.concat(response.data.items);
+
+              if (response.data.items.length < perPage) {
+                break;
+              }
+              page++;
+            }
+
+            return results;
+          }
+
+          async function fetchPRDetails(prNumber) {
+            const prResponse = await octokit.pulls.get({
+              owner,
+              repo,
+              pull_number: prNumber
+            });
+            const prData = prResponse.data;
+
+            const filesResponse = await octokit.pulls.listFiles({
+              owner,
+              repo,
+              pull_number: prNumber,
+              per_page: 100
+            });
+            const files = filesResponse.data;
+
+            const fileDetails = files.map(f => f.filename);
+            const lineDiff = files.reduce((acc, f) => acc + f.additions + f.deletions, 0);
+
+            return {
+              createdAt: prData.created_at,
+              mergedAt: prData.merged_at,
+              author: prData.user.login,
+              reviewers: prData.requested_reviewers.map(r => r.login),
+              fileDetails,
+              lineDiff
+            };
+          }
+
+          async function main() {
+            const prItems = await fetchPRs();
+            const monthInText = `${year}-${String(month).padStart(2, "0")}`;
+            const titleForMonth = `What was done for ${monthInText}`;
+
+            let mdContent = `---\n`;
+            mdContent += `title: ${titleForMonth}\n`;
+            mdContent += `author: ${username}\n`;
+            mdContent += `repository: ${repoInput}\n`;
+            mdContent += `summarized_month: ${monthStr}\n`;
+            mdContent += `tags: [summary, pr]\n`;
+            mdContent += `---\n\n`;
+
+            for (const item of prItems) {
+              const prNumber = item.number;
+              const prHtmlUrl = item.html_url;
+              const prTitle = item.title;
+              const details = await fetchPRDetails(prNumber);
+
+              mdContent += `# ${prTitle}\n`;
+              mdContent += `**link**: [#${prNumber}](${prHtmlUrl})\n`;
+              mdContent += `**Created date**: ${details.createdAt}\n`;
+              mdContent += `**Merged date**: ${details.mergedAt ? details.mergedAt : "Not merged"}\n`;
+              mdContent += `**author**: ${details.author}\n`;
+              mdContent += `**reviewers**: ${details.reviewers.join(", ")}\n`;
+              mdContent += `**modified files**: \n`;
+              details.fileDetails.forEach(f => {
+                mdContent += ` - \`${f}\`\n`;
+              });
+              mdContent += `**line diff**: ${details.lineDiff}\n\n`;
+            }
+
+            const repoForFilename = repoInput.replace('/', '_');
+            const outputFilename = `summary_${repoForFilename}_${year}_${String(month).padStart(2, "0")}.md`;
+            fs.writeFileSync(outputFilename, mdContent);
+            console.log(`Created summary file: ${outputFilename}`);
+          }
+
+          main().catch(error => {
+            console.error(error);
+            process.exit(1);
+          });
+          EOL
+
+      - name: Run script
+        run: node summarize.js
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_USERNAME: ${{ github.event.inputs.username }}
+          INPUT_REPO: ${{ github.event.inputs.repo }}
+          INPUT_MONTH: ${{ github.event.inputs.month }}
+
+      - name: Upload summary as artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: pr_summary
+          path: summary_*.md
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Commit summary file
+        run: |
+          git add summary_*.md
+          git commit -m "Add monthly PR summary for ${{ github.event.inputs.month }}"
+          git push origin HEAD
