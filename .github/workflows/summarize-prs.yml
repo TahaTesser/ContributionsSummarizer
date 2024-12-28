@@ -26,13 +26,16 @@ jobs:
           node-version: '16'
 
       - name: Install dependencies
-        run: npm install @octokit/rest
+        run: |
+          npm init -y
+          npm install @octokit/rest
+          npm pkg set type="module"
 
       - name: Create script
         run: |
           cat > summarize.js << 'EOL'
-          const { Octokit } = require("@octokit/rest");
-          const fs = require("fs");
+          import { Octokit } from "@octokit/rest";
+          import fs from "fs";
 
           const username = process.env.INPUT_USERNAME;
           const repoInput = process.env.INPUT_REPO;
