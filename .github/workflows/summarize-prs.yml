@@ -1,10 +1,10 @@
-name: Summarize PRs for a Month
+name: Summarize PRs (monthly)
 
 on:
   workflow_dispatch:
     inputs:
       username:
-        description: "Your GitHub username (e.g. 'myUser')"
+        description: "Your GitHub username (e.g. 'TahaTesser')"
         required: true
       repo:
         description: "Target repo (e.g. 'flutter/flutter')"
@@ -118,15 +118,13 @@ jobs:
           async function main() {
             const prItems = await fetchPRs();
             const monthInText = `${year}-${String(month).padStart(2, "0")}`;
-            const titleForMonth = `What was done for ${monthInText}`;
+            
+            let mdContent = '# ' + repoInput + ' Updates - ' + monthInText + '\n\n'
+              + 'Welcome to the ' + monthInText + ' update for ' + repoInput + '! This document summarizes all pull requests created during this period.\n\n'
+              + '## Pull Requests Overview\n\n';
 
-            let mdContent = `---\n`;
-            mdContent += `title: ${titleForMonth}\n`;
-            mdContent += `author: ${username}\n`;
-            mdContent += `repository: ${repoInput}\n`;
-            mdContent += `summarized_month: ${monthStr}\n`;
-            mdContent += `tags: [summary, pr]\n`;
-            mdContent += `---\n\n`;
+            let allFileDetails = [];
+            let totalLineChanges = 0;
 
             for (const item of prItems) {
               const prNumber = item.number;
@@ -134,26 +132,47 @@ jobs:
               const prTitle = item.title;
               const details = await fetchPRDetails(prNumber);
 
-              mdContent += `# ${prTitle}\n`;
-              mdContent += `**link**: [#${prNumber}](${prHtmlUrl})\n`;
-              mdContent += `**Created date**: ${details.createdAt}\n`;
-              mdContent += `**Merged date**: ${details.mergedAt ? details.mergedAt : "Not merged"}\n`;
-              mdContent += `**author**: ${details.author}\n`;
-              mdContent += `**reviewers**: ${details.reviewers.join(", ")}\n`;
-              mdContent += `**modified files**: \n`;
-              details.fileDetails.forEach(f => {
-                mdContent += ` - \`${f}\`\n`;
+              mdContent += '### ' + prTitle + '\n\n';
+              mdContent += '#### Pull Request Details\n\n';
+              mdContent += '- **PR Link**: [#' + prNumber + '](' + prHtmlUrl + ')\n';
+              mdContent += '- **Created**: ' + new Date(details.createdAt).toLocaleDateString() + '\n';
+              mdContent += '- **Status**: ' + 
+                (details.mergedAt ? 'Merged on ' + new Date(details.mergedAt).toLocaleDateString() : 'Not merged') + '\n';
+              mdContent += '- **Author**: ' + details.author + '\n';
+              
+              if (details.reviewers.length > 0) {
+                mdContent += '- **Reviewers**: ' + details.reviewers.join(', ') + '\n';
+              }
+
+              mdContent += '\n#### Changes\n\n';
+              mdContent += '- **Modified Files**:\n';
+              details.fileDetails.forEach((f) => {
+                mdContent += '  - `' + f + '`\n';
               });
-              mdContent += `**line diff**: ${details.lineDiff}\n\n`;
+              mdContent += '- **Total Line Changes**: ' + details.lineDiff + '\n\n';
+              mdContent += '---\n\n';
+
+              allFileDetails = allFileDetails.concat(details.fileDetails);
+              totalLineChanges += details.lineDiff;
             }
 
-            const repoForFilename = repoInput.replace('/', '_');
-            const outputFilename = `summary_${repoForFilename}_${year}_${String(month).padStart(2, "0")}.md`;
+            mdContent += '## Summary Statistics\n\n';
+            mdContent += '- Total PRs: ' + prItems.length + '\n';
+            const uniqueFiles = new Set(allFileDetails);
+            mdContent += '- Total Files Modified: ' + uniqueFiles.size + '\n';
+            mdContent += '- Total Line Changes: ' + totalLineChanges + '\n';
+
+            const repoDir = repoInput.replace('/', '_');
+            if (!fs.existsSync(repoDir)) {
+              fs.mkdirSync(repoDir, { recursive: true });
+            }
+
+            const outputFilename = `${repoDir}/${username}_${monthStr}.md`;
             fs.writeFileSync(outputFilename, mdContent);
             console.log(`Created summary file: ${outputFilename}`);
           }
 
-          main().catch(error => {
+          main().catch((error) => {
             console.error(error);
             process.exit(1);
           });
@@ -171,15 +190,15 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: pr_summary
-          path: summary_*.md
+          path: '*/*_*.md'
 
       - name: Configure git
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
 
       - name: Commit summary file
         run: |
-          git add summary_*.md
-          git commit -m "Add monthly PR summary for ${{ github.event.inputs.month }}"
+          git add */
+          git commit -m 'Add monthly PR summary for ${{ github.event.inputs.month }}'
           git push origin HEAD
