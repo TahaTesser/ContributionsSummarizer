@@ -53,6 +53,9 @@ async function fetchPRs() {
 async function summarizeWithClaude(prBody) {
   if (!prBody) return '';
   
+  // Remove Pre-launch Checklist and anything after it
+  const cleanedBody = prBody.split(/## Pre-launch Checklist|## Pre-Landing Checklist/)[0].trim();
+  
   try {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -66,7 +69,7 @@ async function summarizeWithClaude(prBody) {
         max_tokens: 4000,
         messages: [{
           role: 'user',
-          content: `Summarize the following pull request description in 3-5 lines. Ignore any checklists:\n\n${prBody}`
+          content: `Summarize the following pull request description in 3-5 lines:\n\n${cleanedBody}`
         }]
       })
     });
