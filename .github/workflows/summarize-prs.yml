@@ -105,23 +105,37 @@ jobs:
             const fileDetails = files.map(f => f.filename);
             const lineDiff = files.reduce((acc, f) => acc + f.additions + f.deletions, 0);
 
+            // Extract summary from PR body
+            let summary = '';
+            if (prData.body) {
+              // Look for content between ## Description and the next heading
+              const descMatch = prData.body.match(/## Description\s*([\s\S]*?)(?=##|$)/);
+              if (descMatch) {
+                summary = descMatch[1].trim();
+              } else {
+                // If no Description heading, take first paragraph
+                summary = prData.body.split('\n\n')[0].trim();
+              }
+            }
+
             return {
               createdAt: prData.created_at,
               mergedAt: prData.merged_at,
               author: prData.user.login,
               reviewers: prData.requested_reviewers.map(r => r.login),
               fileDetails,
-              lineDiff
+              lineDiff,
+              summary
             };
           }
 
           async function main() {
             const prItems = await fetchPRs();
-            const monthInText = `${year}-${String(month).padStart(2, "0")}`;
+            const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+            const monthInText = `${months[month-1]}, ${year}`;
             
-            let mdContent = '# ' + repoInput + ' Updates - ' + monthInText + '\n\n'
-              + 'Welcome to the ' + monthInText + ' update for ' + repoInput + '! This document summarizes all pull requests created during this period.\n\n'
-              + '## Pull Requests Overview\n\n';
+            let mdContent = '# ' + repoInput + ' Contributions - ' + monthInText + '\n\n'
+              + '## Pull Requests\n\n';
 
             let allFileDetails = [];
             let totalLineChanges = 0;
@@ -132,24 +146,34 @@ jobs:
               const prTitle = item.title;
               const details = await fetchPRDetails(prNumber);
 
-              mdContent += '### ' + prTitle + '\n\n';
-              mdContent += '#### Pull Request Details\n\n';
-              mdContent += '- **PR Link**: [#' + prNumber + '](' + prHtmlUrl + ')\n';
-              mdContent += '- **Created**: ' + new Date(details.createdAt).toLocaleDateString() + '\n';
-              mdContent += '- **Status**: ' + 
-                (details.mergedAt ? 'Merged on ' + new Date(details.mergedAt).toLocaleDateString() : 'Not merged') + '\n';
-              mdContent += '- **Author**: ' + details.author + '\n';
+              mdContent += '### ' + (prItems.indexOf(item) + 1) + '. ' + prTitle + '\n\n';
+              
+              // Add PR summary if available
+              if (details.summary) {
+                mdContent += '**Summary:** ' + details.summary + '\n\n';
+              }
+              
+              mdContent += 'Details:\n\n';
+              mdContent += '- Author: ' + details.author + '\n';
               
               if (details.reviewers.length > 0) {
-                mdContent += '- **Reviewers**: ' + details.reviewers.join(', ') + '\n';
+                mdContent += '- Reviewers: ' + details.reviewers.join(', ') + '\n';
+              } else {
+                mdContent += '- Reviewers: None\n';
               }
 
-              mdContent += '\n#### Changes\n\n';
-              mdContent += '- **Modified Files**:\n';
+              mdContent += '- Link: ' + prHtmlUrl + '\n';
+              
+              mdContent += '- Files Changed:\n';
               details.fileDetails.forEach((f) => {
-                mdContent += '  - `' + f + '`\n';
+                if (f.endsWith('_test.dart')) {
+                  mdContent += '  - Tests added: ' + f + '\n';
+                } else {
+                  mdContent += '  - Updated: ' + f + '\n';
+                }
               });
-              mdContent += '- **Total Line Changes**: ' + details.lineDiff + '\n\n';
+              
+              mdContent += '- Line Diff: ' + details.lineDiff + '\n\n';
               mdContent += '---\n\n';
 
               allFileDetails = allFileDetails.concat(details.fileDetails);
