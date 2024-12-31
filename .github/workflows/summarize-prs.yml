@@ -252,6 +252,6 @@ jobs:
 
       - name: Commit summary file
         run: |
-          git add */
+          git add .
           git commit -m 'Add monthly PR summary for ${{ github.event.inputs.month }}'
           git push origin HEAD
