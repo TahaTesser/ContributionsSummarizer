@@ -258,3 +258,6 @@ jobs:
           git add .
           git commit -m 'Add monthly PR summary for ${{ github.event.inputs.month }}'
           git push origin HEAD
+
+permissions:
+  contents: write

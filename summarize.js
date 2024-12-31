@@ -1,6 +1,10 @@
 import { Octokit } from "@octokit/rest";
 import fetch from "node-fetch";
 import fs from "fs";
+import { exec } from 'child_process';
+import { promisify } from 'util';
+
+const execAsync = promisify(exec);
 
 const username = process.env.INPUT_USERNAME;
 const repoInput = process.env.INPUT_REPO;
@@ -189,6 +193,19 @@ async function main() {
   const outputFilename = `${repoDir}/${username}_${monthStr}.md`;
   fs.writeFileSync(outputFilename, mdContent);
   console.log(`Created summary file: ${outputFilename}`);
+
+  // Add git operations to commit the file
+  try {
+    await execAsync('git config --global user.email "github-actions[bot]@users.noreply.github.com"');
+    await execAsync('git config --global user.name "github-actions[bot]"');
+    await execAsync(`git add ${outputFilename}`);
+    await execAsync(`git commit -m "Add PR summary for ${username} - ${monthStr}"`);
+    await execAsync('git push');
+    console.log('Successfully committed and pushed the summary file');
+  } catch (error) {
+    console.error('Error committing the file:', error);
+    throw error;
+  }
 }
 
 main().catch((error) => {
